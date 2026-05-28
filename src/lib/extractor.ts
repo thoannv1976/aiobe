@@ -1,6 +1,8 @@
 // Trích xuất PLO, PI và danh mục học phần từ văn bản đề án mở ngành
 // Sử dụng quy tắc (rule-based) cho tiếng Việt. Khi tích hợp LLM có thể thay thế phần này.
 
+import { cleanRawText } from "./text-cleaner";
+
 export interface ExtractedPLO {
   code: string;
   description: string;
@@ -70,11 +72,8 @@ function detectCategory(text: string): string | undefined {
 }
 
 export function extractFromText(text: string): ExtractionResult {
-  const cleaned = text
-    .replace(/\r/g, "")
-    .replace(/[\t]+/g, " ")
-    .replace(/ {2,}/g, " ")
-    .replace(/\n{2,}/g, "\n");
+  // Strip TOC + page numbers + normalize whitespace trước khi parse
+  const cleaned = cleanRawText(text).replace(/\n{2,}/g, "\n");
 
   const plos = extractPLOs(cleaned);
   const courses = extractCourses(cleaned);

@@ -44,10 +44,18 @@ export async function POST(
     );
   }
 
-  await prisma.$transaction([
-    prisma.pLO.deleteMany({ where: { programId: program.id } }),
-    prisma.course.deleteMany({ where: { programId: program.id } }),
-  ]);
+  // Safety: nếu AI trả về rỗng hết, KHÔNG xoá data cũ — báo lỗi
+  if (extracted.plos.length === 0 && extracted.courses.length === 0) {
+    return NextResponse.json(
+      {
+        error:
+          "AI không tìm thấy PLO hay học phần nào trong văn bản. Dữ liệu hiện tại được giữ nguyên. Có thể PDF được parse thiếu — hãy xem GET /api/programs/" +
+          program.id +
+          "/raw-text để kiểm tra.",
+      },
+      { status: 422 },
+    );
+  }
 
   await prisma.program.update({
     where: { id: program.id },
