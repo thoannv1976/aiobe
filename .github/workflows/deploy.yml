@@ -60,14 +60,20 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: npx prisma db push --accept-data-loss
 
-      - name: Submit Cloud Build (build & push image)
+      - name: Configure Docker for Artifact Registry
+        env:
+          GCP_REGION: ${{ secrets.GCP_REGION }}
+        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+      - name: Build & Push Docker image
         env:
           GCP_REGION: ${{ secrets.GCP_REGION }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           IMAGE="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${REPOSITORY}/${SERVICE_NAME}:${GITHUB_SHA}"
           echo "Building image: $IMAGE"
-          gcloud builds submit --tag "$IMAGE" --quiet
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
       - name: Deploy to Cloud Run
