@@ -46,26 +46,25 @@ export function ProgramDetail({ program }: { program: Program }) {
     { id: "courses", label: `Học phần (${program.courses.length})` },
   ] as const;
 
-  async function reExtract() {
-    if (
-      !confirm(
-        "Hành động này sẽ XOÁ toàn bộ PLO/PI và học phần hiện tại, rồi trích xuất lại từ văn bản gốc. " +
-          "Mọi đề cương / câu hỏi / đề thi gắn với các môn cũ cũng sẽ bị xoá theo. Tiếp tục?",
-      )
-    )
-      return;
+  async function doExtract(useAI: boolean) {
+    const msg = useAI
+      ? "Sẽ XOÁ PLO/PI/học phần hiện tại và trích xuất lại bằng Claude AI (chất lượng cao hơn, tốn API cost ~$0.10-0.20). Tiếp tục?"
+      : "Sẽ XOÁ PLO/PI/học phần hiện tại và trích xuất lại bằng rule-based. Đề cương/câu hỏi/đề thi của các môn cũ cũng mất theo. Tiếp tục?";
+    if (!confirm(msg)) return;
+
     setReExtracting(true);
     setReExtractMsg(null);
     try {
-      const res = await fetch(`/api/programs/${program.id}/re-extract`, {
-        method: "POST",
-      });
+      const url = useAI
+        ? `/api/programs/${program.id}/ai-extract`
+        : `/api/programs/${program.id}/re-extract`;
+      const res = await fetch(url, { method: "POST" });
       const json = await res.json();
       if (!res.ok) {
         setReExtractMsg(`Lỗi: ${json.error || "không rõ"}`);
       } else {
         setReExtractMsg(
-          `✓ Trích xuất lại: ${json.extracted.ploCount} PLO, ${json.extracted.piCount} PI, ${json.extracted.courseCount} học phần`,
+          `✓ ${useAI ? "AI trích xuất" : "Trích xuất"}: ${json.extracted.ploCount} PLO, ${json.extracted.piCount} PI, ${json.extracted.courseCount} học phần`,
         );
         router.refresh();
       }
@@ -92,14 +91,27 @@ export function ProgramDetail({ program }: { program: Program }) {
             {t.label}
           </button>
         ))}
-        <button
-          onClick={reExtract}
-          disabled={reExtracting}
-          className="ml-auto mb-1 text-xs px-2 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50"
-          title="Trích xuất lại PLO/PI/Học phần từ văn bản gốc đã upload"
-        >
-          {reExtracting ? "Đang xử lý..." : "🔄 Trích xuất lại"}
-        </button>
+        <div className="ml-auto mb-1 flex gap-1 items-center">
+          {reExtracting && (
+            <span className="text-xs text-slate-500 mr-1">Đang xử lý…</span>
+          )}
+          <button
+            onClick={() => doExtract(false)}
+            disabled={reExtracting}
+            className="text-xs px-2 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+            title="Trích xuất lại bằng quy tắc (rule-based, miễn phí)"
+          >
+            🔄 Rule-based
+          </button>
+          <button
+            onClick={() => doExtract(true)}
+            disabled={reExtracting}
+            className="text-xs px-2 py-1 rounded border border-purple-300 bg-purple-50 text-purple-800 hover:bg-purple-100 disabled:opacity-50"
+            title="Trích xuất lại bằng Claude AI (chính xác cao hơn, tốn cost)"
+          >
+            ✨ AI trích xuất
+          </button>
+        </div>
       </div>
 
       {reExtractMsg && (

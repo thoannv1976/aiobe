@@ -27,7 +27,29 @@ Hệ thống xây dựng và quản lý chương trình đào tạo theo chuẩn
 - **Tailwind CSS**
 - **Prisma** + **PostgreSQL**
 - **pdf-parse**, **mammoth** cho trích xuất tài liệu
+- **Anthropic SDK** (Claude Sonnet 4.6) cho AI extraction + suggestions
 - **Cloud Run** + **GitHub Actions** cho CI/CD
+
+## Chức năng AI (Claude API)
+
+App có 4 endpoint AI dùng `claude-sonnet-4-6` với prompt caching + structured output (Zod):
+
+| Chức năng | Endpoint | UI |
+|---|---|---|
+| Trích xuất PLO/PI/học phần | `POST /api/programs/[id]/ai-extract` | Nút **✨ AI trích xuất** trang chương trình |
+| Gợi ý + tạo CLO + auto-map | `POST /api/syllabi/[id]/ai-suggest-clos?apply=true` | Tab CLO trên Syllabus → **✨ AI gợi ý CLO** |
+| Auto-map CLO ↔ PLO | `POST /api/syllabi/[id]/ai-map` | Tab Ma trận → **✨ AI auto-map** |
+| Sinh câu hỏi cho CLO | `POST /api/courses/[id]/ai-generate-questions` | Trang Câu hỏi → **✨ AI sinh câu hỏi** |
+
+Cấu hình:
+1. Lấy API key tại https://console.anthropic.com
+2. Thêm GitHub Secret `ANTHROPIC_API_KEY` (workflow đã tự pass vào Cloud Run)
+3. (Optional) GitHub Variable `AI_MODEL` để chọn model khác — mặc định `claude-sonnet-4-6`. Có thể đổi `claude-haiku-4-5` để giảm chi phí ~3x cho task đơn giản.
+
+Chi phí ước tính (Sonnet 4.6, $3/$15 per Mtok):
+- AI trích xuất 1 đề án ~50KB text: ~$0.10
+- Gợi ý 5 CLO + map: ~$0.02
+- Sinh 5 câu hỏi MC: ~$0.03
 
 ## Chạy local
 

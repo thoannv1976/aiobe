@@ -79,16 +79,23 @@ jobs:
       - name: Deploy to Cloud Run
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AI_MODEL: ${{ vars.AI_MODEL }}
           GCP_REGION: ${{ secrets.GCP_REGION }}
         run: |
           # Dùng YAML env-vars-file để tránh vấn đề escape với dấu phẩy/đặc biệt
           python3 -c "
           import yaml, os
+          envs = {
+              'NODE_ENV': 'production',
+              'DATABASE_URL': os.environ['DATABASE_URL'],
+          }
+          if os.environ.get('ANTHROPIC_API_KEY'):
+              envs['ANTHROPIC_API_KEY'] = os.environ['ANTHROPIC_API_KEY']
+          if os.environ.get('AI_MODEL'):
+              envs['AI_MODEL'] = os.environ['AI_MODEL']
           with open('/tmp/envs.yaml', 'w') as f:
-              yaml.safe_dump({
-                  'NODE_ENV': 'production',
-                  'DATABASE_URL': os.environ['DATABASE_URL'],
-              }, f)
+              yaml.safe_dump(envs, f)
           "
           gcloud run deploy "$SERVICE_NAME" \
             --image="$IMAGE" \
@@ -99,6 +106,7 @@ jobs:
             --memory=1Gi \
             --cpu=1 \
             --max-instances=3 \
+            --timeout=300 \
             --env-vars-file=/tmp/envs.yaml \
             --quiet
 

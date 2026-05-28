@@ -180,6 +180,8 @@ function InfoTab({ syllabus }: { syllabus: Syllabus }) {
 function CLOTab({ syllabus }: { syllabus: Syllabus }) {
   const router = useRouter();
   const [adding, setAdding] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMsg, setAiMsg] = useState<string | null>(null);
 
   async function addCLO(form: FormData) {
     await fetch("/api/clos", {
@@ -203,18 +205,68 @@ function CLOTab({ syllabus }: { syllabus: Syllabus }) {
     router.refresh();
   }
 
+  async function aiSuggest() {
+    const hasExisting = syllabus.clos.length > 0;
+    const msg = hasExisting
+      ? "Sẽ XOÁ toàn bộ CLO hiện tại và sinh CLO mới bằng AI (kèm gợi ý map sang PLO). Tiếp tục?"
+      : "Sinh CLO bằng AI dựa trên tên học phần + PLO chương trình. Tiếp tục?";
+    if (!confirm(msg)) return;
+
+    setAiBusy(true);
+    setAiMsg(null);
+    try {
+      const res = await fetch(
+        `/api/syllabi/${syllabus.id}/ai-suggest-clos?apply=true`,
+        { method: "POST" },
+      );
+      const json = await res.json();
+      if (!res.ok) {
+        setAiMsg(`Lỗi: ${json.error}`);
+      } else {
+        setAiMsg(`✓ AI đã tạo ${json.suggestions.clos.length} CLO + ploMaps tương ứng`);
+        router.refresh();
+      }
+    } catch (e: any) {
+      setAiMsg(`Lỗi: ${e.message}`);
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   const next = syllabus.clos.length + 1;
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center gap-2">
         <div className="text-sm text-slate-600">
           Course Learning Outcomes — chuẩn đầu ra học phần
         </div>
-        <button onClick={() => setAdding(!adding)} className="btn-primary">
-          {adding ? "Hủy" : "+ Thêm CLO"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={aiSuggest}
+            disabled={aiBusy}
+            className="text-xs px-3 py-1.5 rounded border border-purple-300 bg-purple-50 text-purple-800 hover:bg-purple-100 disabled:opacity-50"
+            title="AI sinh CLO + tự map sang PLO chương trình"
+          >
+            {aiBusy ? "Đang sinh..." : "✨ AI gợi ý CLO"}
+          </button>
+          <button onClick={() => setAdding(!adding)} className="btn-primary">
+            {adding ? "Hủy" : "+ Thêm CLO"}
+          </button>
+        </div>
       </div>
+
+      {aiMsg && (
+        <div
+          className={`card p-2 text-sm ${
+            aiMsg.startsWith("✓")
+              ? "bg-green-50 border-green-200 text-green-800"
+              : "bg-red-50 border-red-200 text-red-800"
+          }`}
+        >
+          {aiMsg}
+        </div>
+      )}
 
       {adding && (
         <form
@@ -330,6 +382,8 @@ function CLOTab({ syllabus }: { syllabus: Syllabus }) {
 function MatrixTab({ syllabus }: { syllabus: Syllabus }) {
   const router = useRouter();
   const plos = syllabus.course.program.plos;
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMsg, setAiMsg] = useState<string | null>(null);
 
   async function setContribution(
     cloId: string,
@@ -349,6 +403,29 @@ function MatrixTab({ syllabus }: { syllabus: Syllabus }) {
     return clo?.ploMaps.find((m) => m.ploId === ploId)?.contribution || "";
   }
 
+  async function aiAutoMap() {
+    if (!confirm("AI sẽ tự động map CLO ↔ PLO, GHI ĐÈ toàn bộ map hiện tại. Tiếp tục?"))
+      return;
+    setAiBusy(true);
+    setAiMsg(null);
+    try {
+      const res = await fetch(`/api/syllabi/${syllabus.id}/ai-map`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setAiMsg(`Lỗi: ${json.error}`);
+      } else {
+        setAiMsg(`✓ AI đã tạo ${json.created} mapping`);
+        router.refresh();
+      }
+    } catch (e: any) {
+      setAiMsg(`Lỗi: ${e.message}`);
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   if (plos.length === 0) {
     return (
       <div className="card p-6 text-center text-slate-500">
@@ -366,13 +443,34 @@ function MatrixTab({ syllabus }: { syllabus: Syllabus }) {
 
   return (
     <div className="space-y-3">
-      <div className="text-sm text-slate-600">
-        Ma trận đóng góp CLO ↔ PLO. Quy ước:{" "}
-        <span className="badge bg-blue-100 text-blue-700">I</span> Introduce ·{" "}
-        <span className="badge bg-amber-100 text-amber-700">R</span> Reinforce ·{" "}
-        <span className="badge bg-purple-100 text-purple-700">M</span> Master ·{" "}
-        <span className="badge bg-green-100 text-green-700">A</span> Assess
+      <div className="flex justify-between items-center gap-2">
+        <div className="text-sm text-slate-600">
+          Ma trận đóng góp CLO ↔ PLO. Quy ước:{" "}
+          <span className="badge bg-blue-100 text-blue-700">I</span> Introduce ·{" "}
+          <span className="badge bg-amber-100 text-amber-700">R</span> Reinforce ·{" "}
+          <span className="badge bg-purple-100 text-purple-700">M</span> Master ·{" "}
+          <span className="badge bg-green-100 text-green-700">A</span> Assess
+        </div>
+        <button
+          onClick={aiAutoMap}
+          disabled={aiBusy}
+          className="text-xs px-3 py-1.5 rounded border border-purple-300 bg-purple-50 text-purple-800 hover:bg-purple-100 disabled:opacity-50 whitespace-nowrap"
+          title="AI tự động map CLO ↔ PLO dựa trên nội dung"
+        >
+          {aiBusy ? "Đang map..." : "✨ AI auto-map"}
+        </button>
       </div>
+      {aiMsg && (
+        <div
+          className={`card p-2 text-sm ${
+            aiMsg.startsWith("✓")
+              ? "bg-green-50 border-green-200 text-green-800"
+              : "bg-red-50 border-red-200 text-red-800"
+          }`}
+        >
+          {aiMsg}
+        </div>
+      )}
       <div className="card overflow-auto">
         <table className="w-full">
           <thead>

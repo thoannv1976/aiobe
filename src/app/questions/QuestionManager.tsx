@@ -124,7 +124,7 @@ export function QuestionManager({
         <StatBox label="Khó" value={stats.hard} color="text-red-700" />
       </div>
 
-      <div className="card p-3 flex items-center gap-3">
+      <div className="card p-3 flex items-center gap-3 flex-wrap">
         <select
           value={courseId}
           onChange={(e) => setCourseId(e.target.value)}
@@ -141,6 +141,7 @@ export function QuestionManager({
           Lọc
         </button>
         <div className="flex-1" />
+        <AIGenerateButton courses={courses} />
         <button onClick={() => setAdding(!adding)} className="btn-primary">
           {adding ? "Hủy" : "+ Thêm câu hỏi"}
         </button>
@@ -350,6 +351,186 @@ function StatBox({
     <div className="card p-3">
       <div className="text-xs text-slate-500">{label}</div>
       <div className={`text-2xl font-bold ${color}`}>{value}</div>
+    </div>
+  );
+}
+
+function AIGenerateButton({ courses }: { courses: Course[] }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [courseId, setCourseId] = useState("");
+  const [cloId, setCloId] = useState("");
+  const [type, setType] = useState<"MC" | "TF" | "SHORT" | "ESSAY">("MC");
+  const [difficulty, setDifficulty] = useState<"EASY" | "MEDIUM" | "HARD">(
+    "MEDIUM",
+  );
+  const [count, setCount] = useState(5);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const course = courses.find((c) => c.id === courseId);
+  const clos = course?.syllabi[0]?.clos || [];
+
+  async function submit() {
+    if (!courseId || !cloId) {
+      setMsg("Chọn học phần và CLO");
+      return;
+    }
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch(
+        `/api/courses/${courseId}/ai-generate-questions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cloId, type, difficulty, count }),
+        },
+      );
+      const json = await res.json();
+      if (!res.ok) {
+        setMsg(`Lỗi: ${json.error}`);
+      } else {
+        setMsg(`✓ Đã sinh ${json.created} câu hỏi`);
+        setTimeout(() => {
+          setOpen(false);
+          setMsg(null);
+          router.refresh();
+        }, 1200);
+      }
+    } catch (e: any) {
+      setMsg(`Lỗi: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="text-sm px-3 py-2 rounded border border-purple-300 bg-purple-50 text-purple-800 hover:bg-purple-100"
+      >
+        ✨ AI sinh câu hỏi
+      </button>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg w-full max-w-lg shadow-lg">
+        <div className="p-5 border-b flex items-center justify-between">
+          <h3 className="font-semibold">✨ AI sinh câu hỏi cho CLO</h3>
+          <button
+            onClick={() => setOpen(false)}
+            className="text-slate-500 hover:text-slate-800"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="label">Học phần</label>
+            <select
+              value={courseId}
+              onChange={(e) => {
+                setCourseId(e.target.value);
+                setCloId("");
+              }}
+              className="input"
+            >
+              <option value="">— Chọn học phần —</option>
+              {courses.map((c) => (
+                <option key={c.id} value={c.id}>
+                  [{c.program.code}] {c.code} — {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">CLO</label>
+            <select
+              value={cloId}
+              onChange={(e) => setCloId(e.target.value)}
+              disabled={!courseId}
+              className="input"
+            >
+              <option value="">— Chọn CLO —</option>
+              {clos.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code} — {c.description.slice(0, 60)}
+                </option>
+              ))}
+            </select>
+            {courseId && clos.length === 0 && (
+              <div className="text-xs text-red-600 mt-1">
+                Học phần này chưa có CLO. Tạo đề cương + CLO trước.
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="label">Loại</label>
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value as any)}
+                className="input"
+              >
+                <option value="MC">Trắc nghiệm</option>
+                <option value="TF">Đúng/Sai</option>
+                <option value="SHORT">Ngắn</option>
+                <option value="ESSAY">Tự luận</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Độ khó</label>
+              <select
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value as any)}
+                className="input"
+              >
+                <option value="EASY">Dễ</option>
+                <option value="MEDIUM">Trung bình</option>
+                <option value="HARD">Khó</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Số câu</label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={count}
+                onChange={(e) => setCount(Number(e.target.value))}
+                className="input"
+              />
+            </div>
+          </div>
+          {msg && (
+            <div
+              className={`p-2 rounded text-sm ${
+                msg.startsWith("✓")
+                  ? "bg-green-50 text-green-800"
+                  : "bg-red-50 text-red-800"
+              }`}
+            >
+              {msg}
+            </div>
+          )}
+          <div className="flex gap-2 justify-end pt-2">
+            <button
+              onClick={() => setOpen(false)}
+              className="btn-secondary"
+              disabled={busy}
+            >
+              Hủy
+            </button>
+            <button onClick={submit} className="btn-primary" disabled={busy}>
+              {busy ? "Đang sinh..." : "✨ Sinh câu hỏi"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
