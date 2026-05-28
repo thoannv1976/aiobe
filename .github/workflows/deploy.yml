@@ -1,0 +1,88 @@
+name: Build & Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+      - claude/sweet-edison-2QAd4
+  workflow_dispatch:
+
+env:
+  SERVICE_NAME: aiobe
+  REPOSITORY: aiobe
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          test -n "${{ secrets.GCP_PROJECT_ID }}" || { echo "Missing secret GCP_PROJECT_ID"; exit 1; }
+          test -n "${{ secrets.GCP_REGION }}"     || { echo "Missing secret GCP_REGION"; exit 1; }
+          test -n "${{ secrets.GCP_SA_KEY }}"     || { echo "Missing secret GCP_SA_KEY"; exit 1; }
+          test -n "${{ secrets.DATABASE_URL }}"   || { echo "Missing secret DATABASE_URL"; exit 1; }
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies (for Prisma migrate)
+        run: npm ci
+
+      - name: Apply Prisma schema to database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npx prisma db push --accept-data-loss
+
+      - name: Submit Cloud Build (build & push image)
+        run: |
+          IMAGE="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+          echo "Building image: $IMAGE"
+          gcloud builds submit --tag "$IMAGE" --quiet
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy to Cloud Run
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image="$IMAGE" \
+            --region=${{ secrets.GCP_REGION }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --port=3000 \
+            --memory=1Gi \
+            --cpu=1 \
+            --max-instances=3 \
+            --update-env-vars="NODE_ENV=production,DATABASE_URL=$DATABASE_URL" \
+            --quiet
+
+      - name: Output service URL
+        run: |
+          URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region=${{ secrets.GCP_REGION }} \
+            --format='value(status.url)')
+          echo "🚀 Deployed: $URL"
+          echo "## 🚀 Deployment successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** $URL" >> $GITHUB_STEP_SUMMARY
