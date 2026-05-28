@@ -1,0 +1,22 @@
+node_modules
+.next
+out
+build
+dist
+
+# env
+.env
+.env.local
+
+# database
+prisma/dev.db
+prisma/dev.db-journal
+*.sqlite
+*.sqlite-journal
+
+# uploads
+public/uploads
+
+# logs
+*.log
+.DS_Store

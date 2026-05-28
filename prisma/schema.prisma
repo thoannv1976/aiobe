@@ -1,0 +1,215 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// =========================
+// Chương trình đào tạo
+// =========================
+model Program {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  level       String   // Cử nhân, Thạc sĩ, Tiến sĩ
+  major       String?
+  year        Int
+  description String?
+  goals       String?  // Mục tiêu chương trình (PEO)
+  sourceFile  String?  // Tên file đề án mở ngành đã upload
+  rawText     String?  // Văn bản đã trích xuất
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  plos    PLO[]
+  courses Course[]
+}
+
+// =========================
+// Chuẩn đầu ra chương trình (PLO)
+// =========================
+model PLO {
+  id          String  @id @default(cuid())
+  programId   String
+  code        String  // PLO1, PLO2,...
+  description String
+  bloomLevel  String? // Knowledge, Comprehension, Application,...
+  category    String? // Knowledge / Skill / Attitude
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  pis     PI[]
+  cloMaps CLOPLOMap[]
+
+  @@unique([programId, code])
+}
+
+// =========================
+// Chỉ báo thực hiện (PI)
+// =========================
+model PI {
+  id          String @id @default(cuid())
+  ploId       String
+  code        String // PI1.1, PI1.2,...
+  description String
+
+  plo PLO @relation(fields: [ploId], references: [id], onDelete: Cascade)
+
+  @@unique([ploId, code])
+}
+
+// =========================
+// Học phần
+// =========================
+model Course {
+  id            String  @id @default(cuid())
+  programId     String
+  code          String
+  name          String
+  credits       Int     @default(3)
+  semester      Int?
+  type          String? // Bắt buộc / Tự chọn / Đại cương / Chuyên ngành
+  prerequisites String?
+  description   String?
+
+  program   Program    @relation(fields: [programId], references: [id], onDelete: Cascade)
+  syllabi   Syllabus[]
+  textbooks Textbook[]
+  questions Question[]
+  exams     Exam[]
+
+  @@unique([programId, code])
+}
+
+// =========================
+// Đề cương học phần
+// =========================
+model Syllabus {
+  id          String   @id @default(cuid())
+  courseId    String
+  version     String   @default("1.0")
+  status      String   @default("DRAFT") // DRAFT / REVIEW / APPROVED
+  objective   String?  // Mục tiêu học phần
+  description String?  // Mô tả học phần
+  teachingMethod String?
+  assessmentPlan String? // JSON: list { name, weight, type, cloRefs }
+  schedule       String? // JSON: tuần học
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  clos     CLO[]
+}
+
+// =========================
+// Chuẩn đầu ra học phần (CLO)
+// =========================
+model CLO {
+  id          String  @id @default(cuid())
+  syllabusId  String
+  code        String  // CLO1, CLO2
+  description String
+  bloomLevel  String? // Remember / Understand / Apply / Analyze / Evaluate / Create
+  category    String? // Knowledge/Skill/Attitude
+
+  syllabus  Syllabus    @relation(fields: [syllabusId], references: [id], onDelete: Cascade)
+  ploMaps   CLOPLOMap[]
+  questions Question[]
+
+  @@unique([syllabusId, code])
+}
+
+// =========================
+// Ma trận CLO ↔ PLO
+// =========================
+model CLOPLOMap {
+  id           String @id @default(cuid())
+  cloId        String
+  ploId        String
+  contribution String // I (Introduce), R (Reinforce), M (Master), A (Assess)
+
+  clo CLO @relation(fields: [cloId], references: [id], onDelete: Cascade)
+  plo PLO @relation(fields: [ploId], references: [id], onDelete: Cascade)
+
+  @@unique([cloId, ploId])
+}
+
+// =========================
+// Giáo trình / Tài liệu
+// =========================
+model Textbook {
+  id        String  @id @default(cuid())
+  courseId  String
+  title     String
+  author    String?
+  publisher String?
+  year      Int?
+  edition   String?
+  isbn      String?
+  type      String  @default("MAIN") // MAIN / REFERENCE / ONLINE
+  url       String?
+  content   String? // Tóm tắt nội dung / mục lục
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+}
+
+// =========================
+// Ngân hàng câu hỏi
+// =========================
+model Question {
+  id         String  @id @default(cuid())
+  courseId   String
+  cloId      String?
+  type       String  @default("MC") // MC / TF / SHORT / ESSAY
+  difficulty String  @default("MEDIUM") // EASY / MEDIUM / HARD
+  bloomLevel String? // Remember/Understand/Apply/Analyze/Evaluate/Create
+  content    String
+  options    String? // JSON ["A...","B..."] cho MC
+  answer     String? // Đáp án
+  explanation String?
+  topic      String?
+  status     String  @default("ACTIVE")
+  createdAt  DateTime @default(now())
+
+  course        Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  clo           CLO?           @relation(fields: [cloId], references: [id])
+  examQuestions ExamQuestion[]
+}
+
+// =========================
+// Đề thi
+// =========================
+model Exam {
+  id          String   @id @default(cuid())
+  courseId    String
+  code        String
+  title       String
+  duration    Int      @default(60) // phút
+  type        String   @default("FINAL") // MIDTERM / FINAL / QUIZ
+  matrix      String?  // JSON ma trận: { cloId, difficulty, count, points }
+  totalPoints Float    @default(10)
+  instructions String?
+  status      String   @default("DRAFT") // DRAFT / APPROVED / ARCHIVED
+  createdAt   DateTime @default(now())
+
+  course        Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  examQuestions ExamQuestion[]
+}
+
+// =========================
+// Câu hỏi trong đề
+// =========================
+model ExamQuestion {
+  id         String @id @default(cuid())
+  examId     String
+  questionId String
+  order      Int    @default(0)
+  points     Float  @default(1)
+
+  exam     Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([examId, questionId])
+}
