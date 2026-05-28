@@ -23,11 +23,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate required secrets
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ secrets.GCP_REGION }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          test -n "${{ secrets.GCP_PROJECT_ID }}" || { echo "Missing secret GCP_PROJECT_ID"; exit 1; }
-          test -n "${{ secrets.GCP_REGION }}"     || { echo "Missing secret GCP_REGION"; exit 1; }
-          test -n "${{ secrets.GCP_SA_KEY }}"     || { echo "Missing secret GCP_SA_KEY"; exit 1; }
-          test -n "${{ secrets.DATABASE_URL }}"   || { echo "Missing secret DATABASE_URL"; exit 1; }
+          [ -n "$GCP_PROJECT_ID" ] || { echo "Missing secret GCP_PROJECT_ID"; exit 1; }
+          [ -n "$GCP_REGION" ]     || { echo "Missing secret GCP_REGION"; exit 1; }
+          [ -n "$GCP_SA_KEY" ]     || { echo "Missing secret GCP_SA_KEY"; exit 1; }
+          [ -n "$DATABASE_URL" ]   || { echo "Missing secret DATABASE_URL"; exit 1; }
+          echo "✓ All required secrets present"
 
       - name: Authenticate to Google Cloud
         id: auth
@@ -55,8 +61,11 @@ jobs:
         run: npx prisma db push --accept-data-loss
 
       - name: Submit Cloud Build (build & push image)
+        env:
+          GCP_REGION: ${{ secrets.GCP_REGION }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
-          IMAGE="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+          IMAGE="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${REPOSITORY}/${SERVICE_NAME}:${GITHUB_SHA}"
           echo "Building image: $IMAGE"
           gcloud builds submit --tag "$IMAGE" --quiet
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
@@ -64,25 +73,39 @@ jobs:
       - name: Deploy to Cloud Run
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GCP_REGION: ${{ secrets.GCP_REGION }}
         run: |
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
+          # Dùng YAML env-vars-file để tránh vấn đề escape với dấu phẩy/đặc biệt
+          python3 -c "
+          import yaml, os
+          with open('/tmp/envs.yaml', 'w') as f:
+              yaml.safe_dump({
+                  'NODE_ENV': 'production',
+                  'DATABASE_URL': os.environ['DATABASE_URL'],
+              }, f)
+          "
+          gcloud run deploy "$SERVICE_NAME" \
             --image="$IMAGE" \
-            --region=${{ secrets.GCP_REGION }} \
+            --region="$GCP_REGION" \
             --platform=managed \
             --allow-unauthenticated \
             --port=3000 \
             --memory=1Gi \
             --cpu=1 \
             --max-instances=3 \
-            --update-env-vars="NODE_ENV=production,DATABASE_URL=$DATABASE_URL" \
+            --env-vars-file=/tmp/envs.yaml \
             --quiet
 
       - name: Output service URL
+        env:
+          GCP_REGION: ${{ secrets.GCP_REGION }}
         run: |
-          URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
-            --region=${{ secrets.GCP_REGION }} \
+          URL=$(gcloud run services describe "$SERVICE_NAME" \
+            --region="$GCP_REGION" \
             --format='value(status.url)')
           echo "🚀 Deployed: $URL"
-          echo "## 🚀 Deployment successful" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**URL:** $URL" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 🚀 Deployment successful"
+            echo ""
+            echo "**URL:** $URL"
+          } >> "$GITHUB_STEP_SUMMARY"
