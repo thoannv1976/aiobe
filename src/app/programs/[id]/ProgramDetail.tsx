@@ -37,6 +37,8 @@ interface Program {
 export function ProgramDetail({ program }: { program: Program }) {
   const router = useRouter();
   const [tab, setTab] = useState<"overview" | "plos" | "courses">("overview");
+  const [reExtracting, setReExtracting] = useState(false);
+  const [reExtractMsg, setReExtractMsg] = useState<string | null>(null);
 
   const tabs = [
     { id: "overview", label: "Tổng quan" },
@@ -44,9 +46,39 @@ export function ProgramDetail({ program }: { program: Program }) {
     { id: "courses", label: `Học phần (${program.courses.length})` },
   ] as const;
 
+  async function reExtract() {
+    if (
+      !confirm(
+        "Hành động này sẽ XOÁ toàn bộ PLO/PI và học phần hiện tại, rồi trích xuất lại từ văn bản gốc. " +
+          "Mọi đề cương / câu hỏi / đề thi gắn với các môn cũ cũng sẽ bị xoá theo. Tiếp tục?",
+      )
+    )
+      return;
+    setReExtracting(true);
+    setReExtractMsg(null);
+    try {
+      const res = await fetch(`/api/programs/${program.id}/re-extract`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setReExtractMsg(`Lỗi: ${json.error || "không rõ"}`);
+      } else {
+        setReExtractMsg(
+          `✓ Trích xuất lại: ${json.extracted.ploCount} PLO, ${json.extracted.piCount} PI, ${json.extracted.courseCount} học phần`,
+        );
+        router.refresh();
+      }
+    } catch (e: any) {
+      setReExtractMsg(`Lỗi mạng: ${e.message}`);
+    } finally {
+      setReExtracting(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <div className="border-b flex gap-1">
+      <div className="border-b flex gap-1 items-center">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -60,7 +92,27 @@ export function ProgramDetail({ program }: { program: Program }) {
             {t.label}
           </button>
         ))}
+        <button
+          onClick={reExtract}
+          disabled={reExtracting}
+          className="ml-auto mb-1 text-xs px-2 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+          title="Trích xuất lại PLO/PI/Học phần từ văn bản gốc đã upload"
+        >
+          {reExtracting ? "Đang xử lý..." : "🔄 Trích xuất lại"}
+        </button>
       </div>
+
+      {reExtractMsg && (
+        <div
+          className={`card p-3 text-sm ${
+            reExtractMsg.startsWith("✓")
+              ? "bg-green-50 border-green-200 text-green-800"
+              : "bg-red-50 border-red-200 text-red-800"
+          }`}
+        >
+          {reExtractMsg}
+        </div>
+      )}
 
       {tab === "overview" && (
         <div className="card p-5 space-y-3">
