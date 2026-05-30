@@ -143,6 +143,24 @@ QUAN TRỌNG
 - Bỏ qua dòng có dạng "Bắt buộc | 11" (đây là dòng summary nhóm, không phải học phần).
 - Nếu bảng có sub-header lồng (Phân bổ tín chỉ, Trên lớp, Tiểu luận...) thì những dòng đó cũng KHÔNG phải học phần.
 
+══════════════════════
+CẢNH BÁO — KHÔNG NHẶT NHẦM BẢNG MA TRẬN
+══════════════════════
+Đề án thường có 2 bảng có cấu trúc GIỐNG NHAU:
+1. **Bảng khung chương trình** (CẦN LẤY): cột "Tên học phần" có chữ tiếng Việt + Anh,
+   cột "Số TC" có giá trị 2-6.
+2. **Bảng ma trận CLO ↔ PLO** (PHẢI BỎ QUA): cũng có cột "Mã HP" nhưng các cột sau là
+   contribution levels (1, 2, 3, hoặc "3,A", "2"...) — KHÔNG có cột tên môn.
+
+Cách phân biệt 1 dòng:
+- "| 1 | Triết học Mác-Lênin (Marxist - Leninist Philosophy) | TRIH114 | 3 | 27 | 18 | 30 | 75 | Không |"
+  → CÓ tên môn chữ thường, CÓ số tiết — LẤY.
+- "| 1 | TRIH114 | 3 |  |  |  |  | 1 |  |  |  | 2 |"
+  → KHÔNG có tên môn, toàn số 1/2/3 và ô trống — BỎ (đây là ma trận CLO-PLO).
+
+Nếu một dòng có cấu trúc của ma trận, TUYỆT ĐỐI không tạo course với "name" là chuỗi
+số/pipe — đó là dấu hiệu nhặt nhầm bảng.
+
 KHÔNG cần trích xuất PLO/PI — đã có call khác xử lý.`;
 
 // =========================================================

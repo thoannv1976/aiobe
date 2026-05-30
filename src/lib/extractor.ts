@@ -393,6 +393,8 @@ async function extractDocx(buffer: Buffer): Promise<string> {
 
 // Convert HTML tables → markdown pipe tables.
 // Bỏ qua bảng nhỏ (<3 rows hoặc <3 cells), giữ bảng lớn (khung chương trình).
+// LOẠI BỎ bảng ma trận PLO/CLO (header chứa "PLO", "Chuẩn đầu ra", "Mục tiêu...")
+// vì cấu trúc giống bảng học phần nhưng nội dung là contribution (1/2/3,A).
 function extractTablesAsMarkdown(html: string): string {
   if (!html.includes("<table")) return "";
   const tableMatches = html.match(/<table[^>]*>[\s\S]*?<\/table>/gi) || [];
@@ -420,6 +422,30 @@ function extractTablesAsMarkdown(html: string): string {
       if (cells.length > maxCols) maxCols = cells.length;
     }
     if (maxCols < 3) continue;
+
+    // Lấy 3 dòng header để phân loại bảng
+    const headerText = rowCells
+      .slice(0, 3)
+      .flat()
+      .join(" ")
+      .toLowerCase();
+
+    // Bảng ma trận PLO/CLO/PEO — KHÔNG phải bảng học phần dù có "Mã HP".
+    // Loại bỏ để AI không nhặt nhầm.
+    const isMatrixTable =
+      /\bplo\b/.test(headerText) ||
+      /chuẩn\s*đầu\s*ra/.test(headerText) ||
+      /\bpeo\b/.test(headerText) ||
+      /mục\s*tiêu\s*(?:đào\s*tạo|chương\s*trình)/.test(headerText);
+
+    // Heuristic phụ: nếu header có "Mã HP" + "PLO" → ma trận; chỉ có "Tên học phần" + "Số TC" → course catalog
+    const hasCourseHeader =
+      /(tên\s*học\s*phần|tên\s*hp)/.test(headerText) &&
+      /(số\s*tc|tín\s*chỉ)/.test(headerText);
+
+    if (isMatrixTable && !hasCourseHeader) {
+      continue;
+    }
 
     tableIdx++;
     out.push(`### Bảng ${tableIdx}\n`);
