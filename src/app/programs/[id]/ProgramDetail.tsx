@@ -50,14 +50,14 @@ export function ProgramDetail({ program }: { program: Program }) {
     if (
       !confirm(
         "AI sẽ XOÁ toàn bộ PLO/PI/học phần hiện tại và trích xuất lại từ văn bản gốc bằng Claude. " +
-          "Quá trình mất 1-3 phút cho đề án dài. Mọi đề cương/câu hỏi/đề thi gắn với các môn cũ cũng sẽ bị xoá. " +
-          "Tiếp tục?",
+          "Quá trình chạy SONG SONG 2 pass (PLO + Học phần). Mất 1-4 phút tuỳ độ dài đề án (200 trang ~3-4 phút). " +
+          "Mọi đề cương/câu hỏi/đề thi gắn với các môn cũ cũng sẽ bị xoá. Tiếp tục?",
       )
     )
       return;
 
     setReExtracting(true);
-    setReExtractMsg("Đang gọi Claude AI (1-3 phút)…");
+    setReExtractMsg("Đang gọi Claude AI 2 pass song song (1-4 phút)…");
     try {
       const res = await fetch(`/api/programs/${program.id}/ai-extract`, {
         method: "POST",

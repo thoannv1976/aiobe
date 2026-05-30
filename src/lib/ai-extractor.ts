@@ -4,15 +4,13 @@ import { getAnthropicClient, AI_MODEL } from "./anthropic";
 import { cleanRawText } from "./text-cleaner";
 
 // =========================================================
-// Schema — structured output từ Claude
+// Schema
 // =========================================================
 
 const BloomEnum = z
   .enum(["Remember", "Understand", "Apply", "Analyze", "Evaluate", "Create"])
   .nullable();
-const CategoryEnum = z
-  .enum(["Kiến thức", "Kỹ năng", "Thái độ"])
-  .nullable();
+const CategoryEnum = z.enum(["Kiến thức", "Kỹ năng", "Thái độ"]).nullable();
 
 const PISchema = z.object({
   code: z.string().describe("Mã PI dạng PI1.1, PI1.2, PI2.1..."),
@@ -28,11 +26,11 @@ const PLOSchema = z.object({
 });
 
 const CourseSchema = z.object({
-  code: z.string().describe("Mã học phần đầy đủ (VD CNTT101, ESP111, KTEE201)"),
+  code: z.string().describe("Mã học phần đầy đủ (VD ESP111, KTEE201, TRIH114)"),
   name: z
     .string()
     .describe(
-      "Tên đầy đủ kể cả số thứ tự VD 'Tiếng Anh chuyên ngành 1'. KHÔNG kèm tên tiếng Anh trong ngoặc.",
+      "Tên đầy đủ tiếng Việt, không kèm tên tiếng Anh trong ngoặc",
     ),
   credits: z.number().int().min(1).max(12),
   semester: z.number().int().min(1).max(12).nullable(),
@@ -41,11 +39,20 @@ const CourseSchema = z.object({
     .nullable(),
 });
 
+// Schema cho pass 1: PLO/PI/goals
+const PLOsResultSchema = z.object({
+  programGoals: z.string().nullable(),
+  plos: z.array(PLOSchema),
+});
+
+// Schema cho pass 2: Courses
+const CoursesResultSchema = z.object({
+  courses: z.array(CourseSchema),
+});
+
+// Schema kết hợp (xuất ra)
 const ExtractionResultSchema = z.object({
-  programGoals: z
-    .string()
-    .nullable()
-    .describe("Mục tiêu chương trình đào tạo (PEO), nếu có"),
+  programGoals: z.string().nullable(),
   plos: z.array(PLOSchema),
   courses: z.array(CourseSchema),
 });
@@ -53,81 +60,120 @@ const ExtractionResultSchema = z.object({
 export type AIExtractionResult = z.infer<typeof ExtractionResultSchema>;
 
 // =========================================================
-// Prompt
+// Prompts — TÁCH RIÊNG cho PLO vs Courses để mỗi call nhỏ + nhanh
 // =========================================================
 
-const EXTRACTOR_SYSTEM_PROMPT = `Bạn là chuyên gia phân tích đề án mở ngành đào tạo bậc đại học Việt Nam theo chuẩn AUN-QA và OBE.
+const PLO_SYSTEM_PROMPT = `Bạn là chuyên gia phân tích đề án mở ngành đào tạo bậc đại học Việt Nam theo AUN-QA / OBE.
 
-Nhiệm vụ: từ văn bản đề án mở ngành (extract từ PDF/DOCX), trích xuất CHÍNH XÁC và ĐẦY ĐỦ:
-1. **PLO** (Program Learning Outcomes — chuẩn đầu ra chương trình)
-2. **PI** (Performance Indicators — chỉ báo thực hiện) cho từng PLO
-3. **Toàn bộ học phần** trong khung chương trình (có thể có 30-80 học phần)
-4. **Mục tiêu chương trình** (PEO — Program Educational Objectives)
+Nhiệm vụ: trích xuất CHỈ 2 thứ:
+1. **PLO + PI** (Program Learning Outcomes + Performance Indicators)
+2. **Mục tiêu chương trình** (PEO)
 
-LOẠI BỎ HOÀN TOÀN:
-- **Mục lục** (TOC): "1.5 Tiêu đề ... 5", "2. Sự cần thiết ... 12" — KHÔNG đưa vào programGoals.
-- Page numbers, header/footer, tên trường lặp đi lặp lại.
-- Phần phụ lục, biểu mẫu trống, danh sách giảng viên.
+LOẠI BỎ:
+- Mục lục (TOC): "1.5 Tiêu đề ... 5", "2. Sự cần thiết ... 12" — KHÔNG đưa vào programGoals.
+- Page numbers, header/footer, tên trường lặp.
 
-══════════════════════
-QUY TẮC HỌC PHẦN (QUAN TRỌNG NHẤT)
-══════════════════════
-Đề án thường có MỘT bảng lớn dạng:
-
-| STT | Tên học phần (VN + EN trong ngoặc) | Mã HP | Số TC | Số tiết LT | TH | KT | Tổng | HP tiên quyết |
-| 1   | Tiếng Anh chuyên ngành 1            | ESP111| 3     | 30         | 30 | 30 | 90   | Không         |
-|     | (English for Specific Purpose 1)    |       |       |            |    |    |      |               |
-
-QUY TẮC:
-- Tên tiếng Anh trong ngoặc (English for Specific Purpose 1...) là MÔ TẢ thêm — KHÔNG đưa vào tên môn. Chỉ giữ tên tiếng Việt.
-- Mã HP đứng ở cột riêng (ESP111, KTEE201, QTRE303, TINE210...) — định dạng [3-5 chữ cái][2-4 chữ số].
-- Số TC là số đứng NGAY SAU mã HP (cột "Số TC" hoặc "Số tín chỉ"). Đây là số nguyên 2-6 thông thường, hiếm khi ≥7.
-- CÁC SỐ KHÁC trên cùng dòng (30, 30, 30, 0, 90...) là số tiết / điểm — KHÔNG phải TC. Đừng nhầm lẫn.
-- Nếu một dòng có dạng "9 Công nghệ số và ứng dụng trí tuệ nhân tạo (Digital Technologies and AI Applications) TINE210 3 30 30 30 0 90 Không":
-    + STT=9 (bỏ qua)
-    + name="Công nghệ số và ứng dụng trí tuệ nhân tạo"
-    + code="TINE210"
-    + credits=3 (số đầu tiên sau mã HP)
-    + các số 30,30,30,0,90 là tiết học (bỏ qua)
-- Mỗi mã HP xuất hiện 1 LẦN — bỏ trùng (nếu môn xuất hiện ở "danh mục" + "kế hoạch học tập", chỉ giữ 1).
-- "Tự chọn" và "Bắt buộc" là type nếu xác định được từ section header.
-- Đề án có thể chia theo:
-    + Khối Đại cương / Cơ sở ngành / Chuyên ngành / Tự chọn
-    + Nhóm "Tiếng Anh chuyên ngành 1..N" — phải lấy ĐỦ CẢ N môn.
-- Nếu có 30+ học phần, PHẢI trích xuất hết — không skip để rút gọn.
-
-══════════════════════
-QUY TẮC PLO / PI
-══════════════════════
-- Mã chuẩn "PLO1", "PLO2"... đánh số liên tục (chuyển CĐR1/ELO1 → PLO1).
-- PI: "PI1.1", "PI1.2", "PI2.1"... PI<X>.<Y> thuộc PLO<X>.
-- Description ĐẦY ĐỦ — ghép nhiều dòng, KHÔNG cắt giữa câu.
-- Bloom: dùng số rõ trong "(Bloom N)" nếu có (1=Remember, 2=Understand, 3=Apply, 4=Analyze, 5=Evaluate, 6=Create). Nếu không, suy ra từ động từ chính.
+Quy tắc PLO:
+- Mã chuẩn "PLO1", "PLO2"... đánh số liên tục (chuyển CĐR/ELO → PLO).
+- Description ĐẦY ĐỦ, không cắt giữa câu — ghép nhiều dòng nếu cần.
+- Bloom: dùng "(Bloom N)" nếu có trong text. Nếu không, suy từ động từ chính.
+  1=Remember, 2=Understand, 3=Apply, 4=Analyze, 5=Evaluate, 6=Create
 - Category: Kiến thức / Kỹ năng / Thái độ.
 
-══════════════════════
-QUY TẮC MỤC TIÊU CHƯƠNG TRÌNH
-══════════════════════
-- Là đoạn văn bản trong phần "Mục tiêu đào tạo" / "Mục tiêu chung" / "PEO".
-- KHÔNG dùng TOC entry "Mục tiêu... 5" làm programGoals.
-- Nếu không có đoạn rõ ràng, trả null.
+Quy tắc PI:
+- Mã "PI1.1", "PI1.2", "PI2.1"... PI<X>.<Y> thuộc PLO<X>.
 
-Trả về TẤT CẢ PLO/PI/học phần phát hiện được, không giới hạn số lượng.`;
+Quy tắc programGoals:
+- Đoạn văn trong phần "Mục tiêu đào tạo" / "Mục tiêu chung" / "PEO" / "Mục tiêu của chương trình".
+- KHÔNG dùng TOC entry "Mục tiêu... 5" làm goals. Phải là đoạn văn thực sự.
+- Nếu không có, trả null.
+
+KHÔNG cần trích xuất học phần — sẽ có call khác xử lý.`;
+
+const COURSES_SYSTEM_PROMPT = `Bạn là chuyên gia phân tích đề án mở ngành đào tạo bậc đại học Việt Nam.
+
+Nhiệm vụ: trích xuất TOÀN BỘ học phần trong khung chương trình (có thể 30-100 môn).
+
+══════════════════════
+FORMAT BẢNG ĐIỂN HÌNH
+══════════════════════
+Đề án thường có bảng dạng:
+
+| STT | Tên học phần (VN + EN trong ngoặc)              | Mã HP    | Số TC | Tiết LT | TH | KT | Tổng | HP tiên quyết |
+| 1   | Triết học Mác-Lênin (Marxist - Leninist Phil.)  | TRIH114  | 3     | 27      | 18 | 30 | 75   | Không         |
+| 6   | Toán, xác suất và thống kê (Math, Prob & Stats) | TOAE102  | 3     | 15      | 60 | 0  | 75   | Không         |
+| 7   | Pháp luật đại cương (Introduction to Law)       | PLUE111  | 3     | 30      | 15 | 30 | 75   | Không         |
+
+QUY TẮC PARSE BẮT BUỘC:
+- Mỗi dòng (hoặc 2-3 dòng nếu tên dài): 1 học phần.
+- Tên tiếng Anh trong ngoặc — BỎ, chỉ giữ tên tiếng Việt.
+- Mã HP: định dạng [chữ cái][số] như TRIH114, TOAE102, PLUE111, ESP111, KTEE201, DTIE100.
+- Số TC: số NGAY SAU mã HP (giá trị 2-6 thông thường, hiếm khi 1 hoặc 7+).
+- CÁC SỐ KHÁC trên dòng (15, 18, 27, 30, 45, 60, 75, 90) là SỐ TIẾT — KHÔNG phải TC. Đừng nhầm!
+
+VÍ DỤ:
+"1 Triết học Mác-Lênin (Marxist - Leninist Philosophy) TRIH114 3 27 18 30 75 Không"
+→ code="TRIH114", name="Triết học Mác-Lênin", credits=3, type="Đại cương" (nếu nằm trong khối Đại cương)
+
+"9 Công nghệ số và ứng dụng trí tuệ nhân tạo (Digital Technologies and AI) TINE210 3 30 30 30 0 90 Không"
+→ code="TINE210", name="Công nghệ số và ứng dụng trí tuệ nhân tạo", credits=3
+
+NGỮ CẢNH KHỐI KIẾN THỨC:
+- "Khối kiến thức giáo dục đại cương" → type="Đại cương"
+- "Cơ sở khối ngành / Cơ sở ngành" → type="Cơ sở ngành"
+- "Kiến thức ngành / Chuyên ngành / Chuyên sâu" → type="Chuyên ngành"
+- "Tự chọn" → type="Tự chọn"
+- "Học phần thực hành / Khóa luận / Đồ án" → type="Chuyên ngành" hoặc "Khác"
+
+QUAN TRỌNG:
+- Lấy ĐỦ tất cả môn — đề án có thể có 30-100 môn, KHÔNG được skip.
+- Mỗi mã HP xuất hiện 1 LẦN (môn lặp ở "danh mục" + "kế hoạch HK" thì chỉ giữ 1).
+- Bỏ qua tổng kết "23 TC", "131 TC tổng", "75.6% chuyên ngành"...
+- Bỏ qua dòng tổng cộng / header bảng / số trang.
+
+KHÔNG cần trích xuất PLO/PI — đã có call khác xử lý.`;
 
 // =========================================================
-// API — dùng streaming để tránh timeout với đề án dài
+// Pass 1: PLO + PI + Goals
 // =========================================================
 
-export async function extractWithAI(rawText: string): Promise<AIExtractionResult> {
+async function extractPLOs(text: string): Promise<z.infer<typeof PLOsResultSchema>> {
   const client = getAnthropicClient();
+  const stream = client.messages.stream({
+    model: AI_MODEL,
+    max_tokens: 16000,
+    thinking: { type: "adaptive" },
+    system: [
+      {
+        type: "text",
+        text: PLO_SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: [
+      {
+        role: "user",
+        content: `Đề án mở ngành đào tạo:\n\n<<<<\n${text}\n>>>>\n\nTrích xuất PLO, PI và programGoals.`,
+      },
+    ],
+    output_config: {
+      effort: "medium",
+      format: zodOutputFormat(PLOsResultSchema),
+    },
+  });
 
-  const cleaned = cleanRawText(rawText);
-  const text = cleaned.length > 500_000 ? cleaned.slice(0, 500_000) : cleaned;
+  const message = await stream.finalMessage();
+  return parseStructured(message, PLOsResultSchema);
+}
 
-  // Dùng stream() thay vì parse() để:
-  //  - giữ kết nối tới Anthropic API "alive" trong suốt quá trình thinking
-  //  - tránh HTTP idle timeout của SDK với request dài
-  //  - cho phép max_tokens lớn (đề án dài có 60+ học phần × ~80 token/môn)
+// =========================================================
+// Pass 2: Courses only
+// =========================================================
+
+async function extractCoursesOnly(
+  text: string,
+): Promise<z.infer<typeof CoursesResultSchema>> {
+  const client = getAnthropicClient();
   const stream = client.messages.stream({
     model: AI_MODEL,
     max_tokens: 32000,
@@ -135,53 +181,81 @@ export async function extractWithAI(rawText: string): Promise<AIExtractionResult
     system: [
       {
         type: "text",
-        text: EXTRACTOR_SYSTEM_PROMPT,
+        text: COURSES_SYSTEM_PROMPT,
         cache_control: { type: "ephemeral" },
       },
     ],
     messages: [
       {
         role: "user",
-        content: `Đây là văn bản đề án mở ngành đào tạo cần trích xuất TOÀN BỘ PLO/PI/học phần:\n\n<<<<\n${text}\n>>>>\n\nTrích xuất theo cấu trúc đã chỉ định. Lưu ý đặc biệt:\n- Đảm bảo lấy ĐẦY ĐỦ tất cả học phần trong khung chương trình (có thể 30-80 môn)\n- Tên môn KHÔNG kèm tên tiếng Anh trong ngoặc\n- Số TC là số ngay sau mã HP (2-6), không nhầm với số tiết (30, 45, 60, 90)`,
+        content: `Đề án mở ngành đào tạo:\n\n<<<<\n${text}\n>>>>\n\nTrích xuất TOÀN BỘ học phần trong khung chương trình (có thể 30-100 môn). KHÔNG bỏ sót môn nào.`,
       },
     ],
     output_config: {
-      effort: "medium", // medium đủ cho task này, nhanh hơn high ~40%
-      format: zodOutputFormat(ExtractionResultSchema),
+      effort: "medium",
+      format: zodOutputFormat(CoursesResultSchema),
     },
   });
 
   const message = await stream.finalMessage();
+  return parseStructured(message, CoursesResultSchema);
+}
 
-  // Ưu tiên parsed_output nếu SDK đã parse sẵn
-  const anyMsg = message as unknown as { parsed_output?: unknown };
-  if (anyMsg.parsed_output) {
+// =========================================================
+// Helper: parse Claude response (structured output)
+// =========================================================
+
+function parseStructured<T>(message: any, schema: z.ZodSchema<T>): T {
+  // Ưu tiên parsed_output nếu SDK đã parse
+  if (message?.parsed_output) {
     try {
-      return ExtractionResultSchema.parse(anyMsg.parsed_output);
+      return schema.parse(message.parsed_output);
     } catch {
-      // fallback xuống manual parse
+      /* fallback */
     }
   }
 
-  // Manual parse từ text content
-  for (const block of message.content) {
-    if (block.type === "text" && block.text) {
-      // Anthropic structured output trả JSON trong text block.
-      // Có khi có markdown fence ```json — strip nếu có.
+  // Manual parse JSON từ text content
+  const content = Array.isArray(message?.content) ? message.content : [];
+  for (const block of content) {
+    if (block?.type === "text" && typeof block.text === "string" && block.text) {
       let raw = block.text.trim();
       if (raw.startsWith("```")) {
         raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
       }
       try {
         const json = JSON.parse(raw);
-        return ExtractionResultSchema.parse(json);
+        return schema.parse(json);
       } catch {
-        // try next block
+        /* try next block */
       }
     }
   }
 
   throw new Error(
-    `AI không trả về output JSON hợp lệ (stop_reason=${message.stop_reason})`,
+    `AI không trả về output JSON hợp lệ (stop_reason=${message?.stop_reason ?? "unknown"})`,
   );
+}
+
+// =========================================================
+// Public API: chạy 2 pass SONG SONG để nhanh
+// =========================================================
+
+export async function extractWithAI(rawText: string): Promise<AIExtractionResult> {
+  const cleaned = cleanRawText(rawText);
+  // Sonnet/Opus có context 1M — đủ cho 200 trang PDF (~300K tokens)
+  // Nhưng để giảm cost + thinking time, cắt ở 800K chars (~200K tokens)
+  const text = cleaned.length > 800_000 ? cleaned.slice(0, 800_000) : cleaned;
+
+  // Chạy song song — giảm wall-time ~2x
+  const [plosResult, coursesResult] = await Promise.all([
+    extractPLOs(text),
+    extractCoursesOnly(text),
+  ]);
+
+  return {
+    programGoals: plosResult.programGoals,
+    plos: plosResult.plos,
+    courses: coursesResult.courses,
+  };
 }

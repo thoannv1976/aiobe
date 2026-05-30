@@ -5,7 +5,7 @@ import { isAIEnabled } from "@/lib/anthropic";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 540;
 
 // Trích xuất lại bằng Claude — chính xác hơn rule-based, tốn API cost.
 // Sẽ xoá toàn bộ PLO/Course hiện có rồi tạo mới.

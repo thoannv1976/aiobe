@@ -103,10 +103,10 @@ jobs:
             --platform=managed \
             --allow-unauthenticated \
             --port=3000 \
-            --memory=1Gi \
+            --memory=2Gi \
             --cpu=1 \
             --max-instances=3 \
-            --timeout=300 \
+            --timeout=540 \
             --env-vars-file=/tmp/envs.yaml \
             --quiet
 

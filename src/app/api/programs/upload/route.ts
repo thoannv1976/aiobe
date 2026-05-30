@@ -106,7 +106,9 @@ export async function POST(req: NextRequest) {
         major,
         year,
         sourceFile: file.name,
-        rawText: text.slice(0, 200000),
+        // Lưu FULL text — không slice. Postgres TEXT hỗ trợ tới 1GB.
+        // Cho phép AI re-extract sau khi upload đề án 200 trang (~500K chars).
+        rawText: text,
         goals: extracted.programGoals,
         plos: {
           create: extracted.plos.map((plo) => ({
