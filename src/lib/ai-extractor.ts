@@ -119,6 +119,7 @@ export async function extractWithAI(rawText: string): Promise<AIExtractionResult
       },
     ],
     output_config: {
+      effort: "high",
       format: zodOutputFormat(ExtractionResultSchema),
     },
   });

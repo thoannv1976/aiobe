@@ -85,6 +85,7 @@ Hãy đề xuất 3-8 CLO cho học phần này, kèm gợi ý map sang PLO. Ch�
       },
     ],
     output_config: {
+      effort: "high",
       format: zodOutputFormat(CLOSuggestionsResultSchema),
     },
   });
@@ -170,6 +171,7 @@ Hãy đề xuất các mapping CLO ↔ PLO với mức contribution phù hợp.`
       },
     ],
     output_config: {
+      effort: "high",
       format: zodOutputFormat(MapResultSchema),
     },
   });
@@ -264,6 +266,7 @@ Mỗi câu hỏi PHẢI bám sát CLO trên. Bloom level câu hỏi tương ứn
       },
     ],
     output_config: {
+      effort: "high",
       format: zodOutputFormat(QuestionsResultSchema),
     },
   });

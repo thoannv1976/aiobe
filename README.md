@@ -27,12 +27,12 @@ Hệ thống xây dựng và quản lý chương trình đào tạo theo chuẩn
 - **Tailwind CSS**
 - **Prisma** + **PostgreSQL**
 - **pdf-parse**, **mammoth** cho trích xuất tài liệu
-- **Anthropic SDK** (Claude Sonnet 4.6) cho AI extraction + suggestions
+- **Anthropic SDK** (Claude Opus 4.7) cho AI extraction + suggestions
 - **Cloud Run** + **GitHub Actions** cho CI/CD
 
 ## Chức năng AI (Claude API)
 
-App có 4 endpoint AI dùng `claude-sonnet-4-6` với prompt caching + structured output (Zod):
+App có 4 endpoint AI dùng `claude-opus-4-7` với adaptive thinking + effort:high + prompt caching + structured output (Zod):
 
 | Chức năng | Endpoint | UI |
 |---|---|---|
@@ -44,12 +44,17 @@ App có 4 endpoint AI dùng `claude-sonnet-4-6` với prompt caching + structure
 Cấu hình:
 1. Lấy API key tại https://console.anthropic.com
 2. Thêm GitHub Secret `ANTHROPIC_API_KEY` (workflow đã tự pass vào Cloud Run)
-3. (Optional) GitHub Variable `AI_MODEL` để chọn model khác — mặc định `claude-sonnet-4-6`. Có thể đổi `claude-haiku-4-5` để giảm chi phí ~3x cho task đơn giản.
+3. (Optional) GitHub Variable `AI_MODEL` để chọn model khác — mặc định `claude-opus-4-7`. Lựa chọn:
+   - `claude-opus-4-7` (mặc định, mạnh nhất, $5/$25 per Mtok)
+   - `claude-sonnet-4-6` (rẻ hơn 1.7x, đủ tốt cho hầu hết task, $3/$15)
+   - `claude-haiku-4-5` (rẻ nhất, $1/$5, task đơn giản)
 
-Chi phí ước tính (Sonnet 4.6, $3/$15 per Mtok):
-- AI trích xuất 1 đề án ~50KB text: ~$0.10
-- Gợi ý 5 CLO + map: ~$0.02
-- Sinh 5 câu hỏi MC: ~$0.03
+Chi phí ước tính (Opus 4.7, $5/$25 per Mtok):
+- AI trích xuất 1 đề án ~50KB text: ~$0.20-0.30
+- Gợi ý 5 CLO + map: ~$0.05
+- Sinh 5 câu hỏi MC: ~$0.06
+
+Với Sonnet 4.6 chia ~1.7x; với Haiku 4.5 chia ~5x.
 
 ## Chạy local
 

@@ -16,9 +16,11 @@ export function getAnthropicClient(): Anthropic {
 }
 
 // Model mặc định — có thể override qua env AI_MODEL
-// Khuyến nghị: claude-sonnet-4-6 (chất lượng cao, $3/$15 per Mtok)
-// Hoặc claude-haiku-4-5 cho task đơn giản ($1/$5 per Mtok)
-export const AI_MODEL = process.env.AI_MODEL || "claude-sonnet-4-6";
+// Khuyến nghị mặc định: claude-opus-4-7 (mạnh nhất, $5/$25 per Mtok)
+// Lựa chọn khác:
+// - claude-sonnet-4-6: rẻ hơn 1.7x, đủ tốt cho hầu hết task ($3/$15)
+// - claude-haiku-4-5: rẻ nhất ($1/$5), phù hợp task đơn giản
+export const AI_MODEL = process.env.AI_MODEL || "claude-opus-4-7";
 
 export function isAIEnabled(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
