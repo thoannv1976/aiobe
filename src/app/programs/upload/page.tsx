@@ -26,11 +26,28 @@ export default function UploadProgramPage() {
         method: "POST",
         body: form,
       });
-      const json = await res.json();
+      // Đọc text trước rồi mới parse — tránh "Unexpected end of JSON input"
+      // khi server trả về body rỗng (timeout, 502, OOM) hoặc HTML 5xx page
+      const raw = await res.text();
+      let json: any = null;
+      if (raw) {
+        try {
+          json = JSON.parse(raw);
+        } catch {
+          // không phải JSON — giữ raw để hiển thị
+        }
+      }
       if (!res.ok) {
-        setError(json.error || "Có lỗi xảy ra");
-      } else {
+        const msg = json?.error
+          ? json.error
+          : raw
+            ? `HTTP ${res.status}: ${raw.slice(0, 300)}`
+            : `HTTP ${res.status} — server không trả về phản hồi (có thể timeout hoặc lỗi nghiêm trọng).`;
+        setError(msg);
+      } else if (json) {
         setResult(json);
+      } else {
+        setError("Server trả về phản hồi rỗng — thử lại hoặc kiểm tra logs.");
       }
     } catch (err: any) {
       setError(err.message || "Lỗi mạng");
