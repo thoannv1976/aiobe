@@ -353,12 +353,83 @@ export async function extractFromFile(
     mime ===
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   ) {
-    const mammoth = await import("mammoth");
-    const result = await mammoth.extractRawText({ buffer });
-    return result.value || "";
+    return await extractDocx(buffer);
   }
   if (lname.endsWith(".txt") || mime.startsWith("text/")) {
     return buffer.toString("utf-8");
   }
   return buffer.toString("utf-8");
+}
+
+// DOCX extraction: vừa lấy paragraphs (rawText) vừa convert tables sang
+// markdown để giữ cấu trúc cột → AI dễ parse học phần.
+// Vấn đề: mammoth.extractRawText biến mỗi cell thành 1 dòng → mất cấu trúc.
+// Giải pháp: dùng convertToHtml, parse table cells, render markdown:
+//   | STT | Tên HP | Mã HP | Số TC | LT | TH | KT | Tổng | HP tiên quyết |
+//   | 1   | Triết học Mác-Lênin | TRIH114 | 3 | 27 | 18 | 30 | 75 | Không |
+async function extractDocx(buffer: Buffer): Promise<string> {
+  const mammoth = await import("mammoth");
+  const [htmlResult, textResult] = await Promise.all([
+    mammoth.convertToHtml({ buffer }),
+    mammoth.extractRawText({ buffer }),
+  ]);
+
+  const plainText = textResult.value || "";
+  const html = htmlResult.value || "";
+
+  const tablesMd = extractTablesAsMarkdown(html);
+
+  if (!tablesMd) return plainText;
+
+  // Ghép paragraphs + ===== TABLES ===== markdown
+  return (
+    plainText +
+    "\n\n========================================\n" +
+    "===  BẢNG (TABLES) — CẤU TRÚC RIÊNG  ===\n" +
+    "========================================\n\n" +
+    tablesMd
+  );
+}
+
+// Convert HTML tables → markdown pipe tables.
+// Bỏ qua bảng nhỏ (<3 rows hoặc <3 cells), giữ bảng lớn (khung chương trình).
+function extractTablesAsMarkdown(html: string): string {
+  if (!html.includes("<table")) return "";
+  const tableMatches = html.match(/<table[^>]*>[\s\S]*?<\/table>/gi) || [];
+  const out: string[] = [];
+  let tableIdx = 0;
+  for (const table of tableMatches) {
+    const rows = table.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || [];
+    if (rows.length < 3) continue;
+
+    const rowCells: string[][] = [];
+    let maxCols = 0;
+    for (const row of rows) {
+      const cells = (row.match(/<t[hd][^>]*>[\s\S]*?<\/t[hd]>/gi) || []).map(
+        (c) =>
+          c
+            .replace(/<[^>]+>/g, " ")
+            .replace(/&nbsp;/g, " ")
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/\s+/g, " ")
+            .trim(),
+      );
+      rowCells.push(cells);
+      if (cells.length > maxCols) maxCols = cells.length;
+    }
+    if (maxCols < 3) continue;
+
+    tableIdx++;
+    out.push(`### Bảng ${tableIdx}\n`);
+    for (const cells of rowCells) {
+      // Pad cells cho đủ cột
+      const padded = [...cells];
+      while (padded.length < maxCols) padded.push("");
+      out.push("| " + padded.join(" | ") + " |");
+    }
+    out.push("");
+  }
+  return out.join("\n");
 }

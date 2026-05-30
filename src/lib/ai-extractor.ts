@@ -95,41 +95,53 @@ const COURSES_SYSTEM_PROMPT = `Bạn là chuyên gia phân tích đề án mở 
 Nhiệm vụ: trích xuất TOÀN BỘ học phần trong khung chương trình (có thể 30-100 môn).
 
 ══════════════════════
-FORMAT BẢNG ĐIỂN HÌNH
+ĐỊNH DẠNG INPUT
 ══════════════════════
-Đề án thường có bảng dạng:
+File DOCX được parse thành 2 phần:
+1. **Đoạn văn** (paragraphs) — phần text chính.
+2. **Bảng** (sau dòng "=== BẢNG (TABLES) ===") — markdown pipe table giữ NGUYÊN cấu trúc bảng gốc:
 
-| STT | Tên học phần (VN + EN trong ngoặc)              | Mã HP    | Số TC | Tiết LT | TH | KT | Tổng | HP tiên quyết |
-| 1   | Triết học Mác-Lênin (Marxist - Leninist Phil.)  | TRIH114  | 3     | 27      | 18 | 30 | 75   | Không         |
-| 6   | Toán, xác suất và thống kê (Math, Prob & Stats) | TOAE102  | 3     | 15      | 60 | 0  | 75   | Không         |
-| 7   | Pháp luật đại cương (Introduction to Law)       | PLUE111  | 3     | 30      | 15 | 30 | 75   | Không         |
+| STT | Tên học phần                                     | Mã HP   | Số TC | LT | TH | KT | Tổng | HP tiên quyết |
+| 1   | Triết học Mác-Lênin(Marxist - Leninist Phil.)    | TRIH114 | 3     | 27 | 18 | 30 | 75   | Không         |
+| 6   | Toán, xác suất và thống kê(Math Prob & Stats)    | TOAE102 | 3     | 15 | 60 | 0  | 75   | Không         |
 
-QUY TẮC PARSE BẮT BUỘC:
-- Mỗi dòng (hoặc 2-3 dòng nếu tên dài): 1 học phần.
-- Tên tiếng Anh trong ngoặc — BỎ, chỉ giữ tên tiếng Việt.
-- Mã HP: định dạng [chữ cái][số] như TRIH114, TOAE102, PLUE111, ESP111, KTEE201, DTIE100.
-- Số TC: số NGAY SAU mã HP (giá trị 2-6 thông thường, hiếm khi 1 hoặc 7+).
-- CÁC SỐ KHÁC trên dòng (15, 18, 27, 30, 45, 60, 75, 90) là SỐ TIẾT — KHÔNG phải TC. Đừng nhầm!
+ƯU TIÊN bảng markdown vì cấu trúc cột rõ ràng. Đối với file PDF không có bảng markdown,
+parse từ đoạn văn theo pattern tương tự (mã HP + TC + tiết).
+
+══════════════════════
+QUY TẮC PARSE
+══════════════════════
+- Mỗi dòng dữ liệu trong bảng markdown = 1 học phần.
+- Cột "Tên học phần" thường chứa cả tiếng Việt + tiếng Anh trong ngoặc → CHỈ giữ tiếng Việt.
+- Cột "Mã HP" là code (TRIH114, TOAE102, PLUE111, ESP111, KTEE201, DTIE100, TINE210...).
+- Cột "Số TC" là tín chỉ (2-6 thông thường).
+- Các cột số khác (LT/TH/KT/Tổng = 15/18/27/30/45/55/60/75/90) là SỐ TIẾT — bỏ qua.
+- Cột "HP tiên quyết": tên các môn prerequisites như "TRIH114;TRIH115" — bỏ qua khi extract.
 
 VÍ DỤ:
-"1 Triết học Mác-Lênin (Marxist - Leninist Philosophy) TRIH114 3 27 18 30 75 Không"
-→ code="TRIH114", name="Triết học Mác-Lênin", credits=3, type="Đại cương" (nếu nằm trong khối Đại cương)
+| 1 | Triết học Mác-Lênin(Marxist - Leninist Philosophy) | TRIH114 | 3 | 27 | 18 | 30 | 75 | Không |
+→ code="TRIH114", name="Triết học Mác-Lênin", credits=3, type="Đại cương" (nếu trong khối Đại cương)
 
-"9 Công nghệ số và ứng dụng trí tuệ nhân tạo (Digital Technologies and AI) TINE210 3 30 30 30 0 90 Không"
-→ code="TINE210", name="Công nghệ số và ứng dụng trí tuệ nhân tạo", credits=3
+| 6 | Toán, xác suất và thống kê trong kinh tế(Mathematics, Probability and Statistics) | TOAE102 | 3 | 15 | 60 | 0 | 75 | Không |
+→ code="TOAE102", name="Toán, xác suất và thống kê trong kinh tế", credits=3
 
-NGỮ CẢNH KHỐI KIẾN THỨC:
-- "Khối kiến thức giáo dục đại cương" → type="Đại cương"
-- "Cơ sở khối ngành / Cơ sở ngành" → type="Cơ sở ngành"
-- "Kiến thức ngành / Chuyên ngành / Chuyên sâu" → type="Chuyên ngành"
-- "Tự chọn" → type="Tự chọn"
-- "Học phần thực hành / Khóa luận / Đồ án" → type="Chuyên ngành" hoặc "Khác"
+══════════════════════
+PHÂN LOẠI TYPE (dựa vào section header gần bảng)
+══════════════════════
+- "Khối kiến thức giáo dục đại cương" → "Đại cương"
+- "Cơ sở khối ngành / Cơ sở ngành" → "Cơ sở ngành"
+- "Kiến thức ngành / Chuyên ngành / Chuyên sâu" → "Chuyên ngành"
+- "Tự chọn / Học phần tự chọn" → "Tự chọn"
+- "Thực hành nghề nghiệp / Khóa luận / Đồ án" → "Chuyên ngành" hoặc "Khác"
 
-QUAN TRỌNG:
+══════════════════════
+QUAN TRỌNG
+══════════════════════
 - Lấy ĐỦ tất cả môn — đề án có thể có 30-100 môn, KHÔNG được skip.
-- Mỗi mã HP xuất hiện 1 LẦN (môn lặp ở "danh mục" + "kế hoạch HK" thì chỉ giữ 1).
-- Bỏ qua tổng kết "23 TC", "131 TC tổng", "75.6% chuyên ngành"...
-- Bỏ qua dòng tổng cộng / header bảng / số trang.
+- Mỗi mã HP xuất hiện 1 LẦN (lặp ở "danh mục" + "kế hoạch HK" → chỉ giữ 1).
+- Bỏ qua dòng tổng cộng "Tổng | 131", "23 TC", "75.6% chuyên ngành", header bảng (STT/Tên HP/Mã HP/Số TC).
+- Bỏ qua dòng có dạng "Bắt buộc | 11" (đây là dòng summary nhóm, không phải học phần).
+- Nếu bảng có sub-header lồng (Phân bổ tín chỉ, Trên lớp, Tiểu luận...) thì những dòng đó cũng KHÔNG phải học phần.
 
 KHÔNG cần trích xuất PLO/PI — đã có call khác xử lý.`;
 
