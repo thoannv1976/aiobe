@@ -46,30 +46,49 @@ export function ProgramDetail({ program }: { program: Program }) {
     { id: "courses", label: `Học phần (${program.courses.length})` },
   ] as const;
 
-  async function doExtract(useAI: boolean) {
-    const msg = useAI
-      ? "Sẽ XOÁ PLO/PI/học phần hiện tại và trích xuất lại bằng Claude AI (chất lượng cao hơn, tốn API cost ~$0.10-0.20). Tiếp tục?"
-      : "Sẽ XOÁ PLO/PI/học phần hiện tại và trích xuất lại bằng rule-based. Đề cương/câu hỏi/đề thi của các môn cũ cũng mất theo. Tiếp tục?";
-    if (!confirm(msg)) return;
+  async function doExtract() {
+    if (
+      !confirm(
+        "AI sẽ XOÁ toàn bộ PLO/PI/học phần hiện tại và trích xuất lại từ văn bản gốc bằng Claude. " +
+          "Quá trình mất 1-3 phút cho đề án dài. Mọi đề cương/câu hỏi/đề thi gắn với các môn cũ cũng sẽ bị xoá. " +
+          "Tiếp tục?",
+      )
+    )
+      return;
 
     setReExtracting(true);
-    setReExtractMsg(null);
+    setReExtractMsg("Đang gọi Claude AI (1-3 phút)…");
     try {
-      const url = useAI
-        ? `/api/programs/${program.id}/ai-extract`
-        : `/api/programs/${program.id}/re-extract`;
-      const res = await fetch(url, { method: "POST" });
-      const json = await res.json();
+      const res = await fetch(`/api/programs/${program.id}/ai-extract`, {
+        method: "POST",
+      });
+      // Đọc text trước rồi mới parse — tránh "Unexpected end of JSON input"
+      const raw = await res.text();
+      let json: any = null;
+      if (raw) {
+        try {
+          json = JSON.parse(raw);
+        } catch {
+          /* not JSON */
+        }
+      }
       if (!res.ok) {
-        setReExtractMsg(`Lỗi: ${json.error || "không rõ"}`);
-      } else {
+        const msg = json?.error
+          ? json.error
+          : raw
+            ? `HTTP ${res.status}: ${raw.slice(0, 300)}`
+            : `HTTP ${res.status} — server không phản hồi (timeout hoặc crash). Thử lại sau 30s.`;
+        setReExtractMsg(`Lỗi: ${msg}`);
+      } else if (json?.extracted) {
         setReExtractMsg(
-          `✓ ${useAI ? "AI trích xuất" : "Trích xuất"}: ${json.extracted.ploCount} PLO, ${json.extracted.piCount} PI, ${json.extracted.courseCount} học phần`,
+          `✓ AI trích xuất: ${json.extracted.ploCount} PLO, ${json.extracted.piCount} PI, ${json.extracted.courseCount} học phần`,
         );
         router.refresh();
+      } else {
+        setReExtractMsg("Server trả về phản hồi rỗng — thử lại.");
       }
     } catch (e: any) {
-      setReExtractMsg(`Lỗi mạng: ${e.message}`);
+      setReExtractMsg(`Lỗi mạng: ${e.message || e}`);
     } finally {
       setReExtracting(false);
     }
@@ -92,24 +111,13 @@ export function ProgramDetail({ program }: { program: Program }) {
           </button>
         ))}
         <div className="ml-auto mb-1 flex gap-1 items-center">
-          {reExtracting && (
-            <span className="text-xs text-slate-500 mr-1">Đang xử lý…</span>
-          )}
           <button
-            onClick={() => doExtract(false)}
+            onClick={doExtract}
             disabled={reExtracting}
-            className="text-xs px-2 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50"
-            title="Trích xuất lại bằng quy tắc (rule-based, miễn phí)"
+            className="text-xs px-3 py-1.5 rounded border border-purple-300 bg-purple-50 text-purple-800 hover:bg-purple-100 disabled:opacity-50"
+            title="Trích xuất lại bằng Claude AI (1-3 phút cho đề án dài)"
           >
-            🔄 Rule-based
-          </button>
-          <button
-            onClick={() => doExtract(true)}
-            disabled={reExtracting}
-            className="text-xs px-2 py-1 rounded border border-purple-300 bg-purple-50 text-purple-800 hover:bg-purple-100 disabled:opacity-50"
-            title="Trích xuất lại bằng Claude AI (chính xác cao hơn, tốn cost)"
-          >
-            ✨ AI trích xuất
+            {reExtracting ? "⏳ Đang trích xuất…" : "✨ AI trích xuất lại"}
           </button>
         </div>
       </div>
